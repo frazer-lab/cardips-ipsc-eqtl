@@ -1,3 +1,10 @@
+data
+private_data
+output
+private_output
+sandbox
+notebooks/.ipynb_checkpoints
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
