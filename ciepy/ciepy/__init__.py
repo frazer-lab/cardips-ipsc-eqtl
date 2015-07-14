@@ -1,3 +1,4 @@
+import gzip 
 import os
 from os.path import join
 import subprocess
@@ -24,3 +25,11 @@ def makedir(p):
 def submit_job(fn):
     subprocess.check_call('ssh cdeboever@flc.ucsd.edu \'qsub {}\''.format(fn),
                           shell=True)
+        
+def read_emmax_output(fn):
+    with gzip.open(fn) as f:
+        lines = [x.strip().split('\t') for x in f.readlines()]
+    lines[0][0] = lines[0][0][1:]
+    res = pd.DataFrame(lines[1:], columns=lines[0])
+    res = res.convert_objects(convert_numeric=True)
+    return res
