@@ -3,17 +3,67 @@ import gzip
 import os
 import shutil
 import subprocess
+import sys
 
 import pandas as pd
 import projectpy as ppy
 
-def run_emmax(gene_id, vcf, regions, ped, kinship_matrix, tempdir, outdir,
-              permuted_peds, covariates=[], num_lesser_pval=15, min_permut=1000,
-              max_permut=10000):
+def _phe(phenof, gene_id, phenos, permut=None):
+    """
+    Make .phe file for EMMAX. The first column is individual ID and the second
+    column is the phenotype value.
+    
+    Parameters
+    ----------
+    phenof : str
+        Path for output phe file.
+
+    gene_id : str
+        ID for gene (must be contained in phenos.index).
+
+    phenos : pandas.DataFrame
+        DataFrame with phenotype values.
+
+    permut : list
+        A list of indices to permute the phenotype data before writing it.
+
+    """
+    se = phenos.ix[gene_id]
+    if permut:
+        se = pd.Series(se.values[permut], index=se.index)
+    se.to_csv(phenof, header=False, sep='\t')
+
+def _reml(eigf, remlf, phe, ind, kin, cov=None):
+    """
+    Make reml file for EMMAX.
+    
+    Parameters
+    ----------
+    eigf : str
+        Path for output eigR file.
+
+    remlf : str
+        Path for output reml file.
+
+    """
+    c = ('{}/pEmmax reml --phenof {} --kinf {} --indf {} --out-eigf {} '
+         '--out-remlf {}'.format(
+             os.path.split(ppy.epacts)[0],
+             phe,
+             kin,
+             ind,
+             eigf,
+             remlf))
+    if cov:
+        c += ' --covf {}'.format(cov)
+    subprocess.check_call(c, shell=True)
+
+def run_emmax(gene_id, vcf, regions, phenotypes, ind, kin, tempdir, outdir,
+              cov=None, num_lesser_pval=15, min_permut=1000, max_permut=10000):
     """
     Run EMMAX for a single gene given a ped file and permuted ped files.
     
-    This function will run EMMAX and 
+    This function will run EMMAX and...
     
     Parameters
     ----------
@@ -23,11 +73,17 @@ def run_emmax(gene_id, vcf, regions, ped, kinship_matrix, tempdir, outdir,
     regions : list
         List of strings of the form 'chr1:100-200'. Biallelic SNVs in these
         regions will be tested.
+
+    phenotypes : str
+        Path to file with phenotype information. Columns should be individual
+        IDs that are in the same order as the ind and cov files. Index should be
+        phenotype names (i.e. gene IDs).
     
-    ped : str
-        Path to PED file with actual genotypes (i.e. not permuted).
+    ind : str
+        Path to ind file for EMMAX. Order should match order of cov phenotypes
+        files.
         
-    kinship_matrix : str
+    kin : str
         Path to kinship matrix file.
         
     tempdir : str
@@ -36,12 +92,8 @@ def run_emmax(gene_id, vcf, regions, ped, kinship_matrix, tempdir, outdir,
     outdir : str
         Path to directory where results will be saved.
         
-    permuted_peds : list
-        List of strings of paths to permuted PED files.
-
-    covariates : list
-        List of covariates that correspond to columns in PED file. These will be
-        used when running EMMAX.
+    cov : str 
+        Path to covariates file for EMMAX.
         
     num_lesser_pval : int
         Number of p-values less than minimum gene p-value that must be observed
@@ -54,123 +106,120 @@ def run_emmax(gene_id, vcf, regions, ped, kinship_matrix, tempdir, outdir,
         The maximum number of permutations to test.
 
     """
+    import random
+    random.seed(20150605)
+
     tempdir = os.path.join(tempdir, gene_id)
     ppy.makedir(tempdir)
 
     curdir = os.path.realpath(os.curdir)
     os.chdir(tempdir)
-    
-    # Make VCF file.
+
+    # Make VCF file. This VCF file will only have biallelic SNVs in the regions
+    # of interest.
     vcf = _make_emmax_vcf(vcf, gene_id, tempdir, regions)
+
+    # Make phe file.
+    phenos = pd.read_table(phenotypes, index_col=0)
+    phenof = os.path.join(tempdir, '{}.phe'.format(gene_id))
+    _phe(phenof, gene_id, phenos)
     
-    # Run EMMAX for real data.
-    _emmax(gene_id, ped, kinship_matrix, vcf, gene_id, covariates=covariates)
-    out = '{}.epacts.gz'.format(gene_id)
-    real_res = read_emmax_output(out)
+    # Make reml file.
+    eigf = os.path.join(tempdir, '{}.eigR'.format(gene_id))
+    remlf = os.path.join(tempdir, '{}.reml'.format(gene_id))
+    _reml(eigf, remlf, phenof, ind, kin, cov=cov)
+
+    # Run association.
+    out = os.path.join(outdir, '{}.tsv'.format(gene_id))
+    _emmax(out, vcf, phenof, ind, eigf, remlf)
+    _emmax_cleanup(gene_id)
+    real_res = pd.read_table(out)
     min_pval = real_res.PVALUE.min()
-    
-    # Run EMMAX for permuted data.
-    ped_df = pd.read_table(ped)
-    names = []
+
+    # Do the previous steps for permutations.
     pvalues = []
     min_pvalues = []
     i = 0
     num_lesser_pvals = 0
-    while i < len(permuted_peds) and i < max_permut:
-        fn = permuted_peds[i]
-        prefix = os.path.splitext(os.path.split(fn)[1])[0]
-        names.append(prefix)
-        tdf = pd.read_table(fn)
-        tdf[gene_id] = ped_df[gene_id].values
-        ped_fn = os.path.join(tempdir, '{}.ped'.format(prefix))
-        tdf.to_csv(ped_fn, index=False, sep='\t')
-        _emmax(gene_id, ped_fn, kinship_matrix, vcf, prefix)
-        out = '{}.epacts.gz'.format(prefix)
-        res = read_emmax_output(out)
-        res.index = 'chr' + res.CHROM.astype(str) + ':' + res.BEG.astype(str)
+    while i < max_permut:
+        # Run EMMAX for this permutation.
+        p = random.sample(range(phenos.shape[1]), phenos.shape[1])
+        phenof = os.path.join(tempdir, '{}.phe'.format(gene_id))
+        _phe(phenof, gene_id, phenos, permut=p)
+        eigf = os.path.join(tempdir, '{}.eigR'.format(gene_id))
+        remlf = os.path.join(tempdir, '{}.reml'.format(gene_id))
+        _reml(eigf, remlf, phenof, ind, kin, cov=cov)
+        out = os.path.join(tempdir, '{}_permutation_{}.tsv'.format(
+            gene_id, str(i + 1).zfill(len(str(max_permut)))))
+        _emmax(out, vcf, phenof, ind, eigf, remlf)
+        _emmax_cleanup(gene_id)
+
+        # Read results.
+        res = pd.read_table(out)
+        res.index = ('chr' + res['#CHROM'].astype(str) + ':' + 
+                     res.BEG.astype(str))
         pvalues.append(res.PVALUE)
         m = res.PVALUE.min()
         min_pvalues.append(m)
         if m < min_pval:
             num_lesser_pvals += 1
-        res.PVALUE.to_csv('{}_pvalues.tsv'.format(prefix), sep='\t')
-        c = 'rm {0}.epacts.gz {0}.ped'.format(prefix)
-        subprocess.check_call(c, shell=True)
         if (num_lesser_pvals >= num_lesser_pval) and (i + 1 >= min_permut):
             break
         i += 1
         if i % 50 == 0:
-            print('Finished {}'.format(i))
+            sys.stderr.write('Finished {} permutations'.format(i))
+        os.remove(out)
         
-    pvalues = pd.DataFrame(pvalues, index=names).T
-    pvalues.to_csv('permuted_pvalues.tsv', sep='\t')
-    min_pvalues = pd.Series(min_pvalues, index=names)
-    min_pvalues.to_csv('minimum_pvalues.tsv', sep='\t')
-    
-    # Remove VCF file.
-    c = 'rm {0}.vcf.gz {0}.vcf.gz.tbi'.format(gene_id)
-    subprocess.check_call(c, shell=True)
-    
-    # Copy output to outdir.
-    outdir = os.path.join(outdir, gene_id)
-    ppy.makedir(outdir)
-    shutil.move('{}.epacts.gz'.format(gene_id), outdir)
-    shutil.move('permuted_pvalues.tsv', outdir)
-    shutil.move('minimum_pvalues.tsv', outdir)
-    shutil.rmtree(tempdir)
-    
-    os.chdir(curdir)
 
-def read_emmax_output(fn):
-    """
-    Read gzipped EMMAX output file and return as dataframe.
-    """
-    with gzip.open(fn) as f:
-        lines = [x.strip().split('\t') for x in f.readlines()]
-    lines[0][0] = lines[0][0][1:]
-    res = pd.DataFrame(lines[1:], columns=lines[0])
-    res = res.convert_objects(convert_numeric=True)
-    return res
+    # Remove VCF file.
+    os.remove('{}.vcf.gz'.format(gene_id))
+    os.remove('{}.vcf.gz.tbi'.format(gene_id))
+   
+    pvalues = pd.DataFrame(pvalues).T
+    pvalues.to_csv(os.path.join(outdir, 'permuted_pvalues.tsv'), index=None, 
+                   sep='\t', header=None)
+    min_pvalues = pd.Series(min_pvalues, index=None)
+    min_pvalues.to_csv(os.path.join(outdir, 'minimum_pvalues.tsv'), sep='\t',
+                       index=None)
     
-def _emmax(gene_id, ped, kinship_matrix, vcf, prefix, covariates=[]):
+    shutil.rmtree(tempdir)
+
+def _emmax(out, vcf, phe, ind, eig, reml):
     """
     Execute EMMAX command.
 
     Parameters
     ----------
-    gene_id : str
-        Gencode gene ID for gene to test.
+    out : str
+        Output file?
     
-    ped : str
-        Path to PED file with actual genotypes (i.e. not permuted).
-        
-    kinship_matrix : str
-        Path to kinship matrix file.
-        
     vcf : str
-        Path to VCF file with SNVs to test.
-        
-    prefix : str
-        Prefix for naming output files.
-
-    covariates : list
-        List of covariates that correspond to columns in PED file. These will be
-        used when running EMMAX.
+        Path to VCF file that contains only the SNVs to test.
         
     """
-    covs = ' '.join(['--cov {}'.format(c) for c in covariates])
-    c = ('{} single --vcf {} --ped {} --min-maf 0.1 --kin {} --pheno {} '
-         '{} --test q.emmax --out {} --run 4'.format(
-        ppy.epacts,
-        vcf,
-        ped,
-        kinship_matrix,
-        gene_id,
-        covs,
-        prefix))
+    c = ('{}/pEmmax assoc --vcf {} --phenof {} --field GT --indf {} --eigf {} '
+         '--remlf {} --out-assocf {} --minMAF 0.1 --maxMAF 1 --maxMAC '
+         '1000000000 --minRSQ 0 --minCallRate 0.5 --minMAC 3'.format(
+             os.path.split(ppy.epacts)[0],
+             vcf,
+             phe,
+             ind,
+             eig,
+             reml,
+             out
+         ))
     subprocess.check_call(c, shell=True)
-    _delete_extra_files(prefix)
-    
+
+def _emmax_cleanup(prefix):
+    """
+    Delete extra EMMAX files that we don't need.
+    """
+    to_delete = ['eigR', 'phe', 'reml']
+    for suffix in to_delete:
+        fn = '{}.{}'.format(prefix, suffix)
+        if os.path.exists(fn):
+            os.remove(fn)
+
 def _make_emmax_vcf(vcf, gene_id, tempdir, regions):
     import ciepy as cpy
 
@@ -209,29 +258,27 @@ def main():
     max_permut = 10000
     tempdir = '/dev/shm'
     parser = argparse.ArgumentParser(description=(
-        'This script runs EMMAX using EPACTS for a single gene. EMMAX is run '
-        'for the "real" data and permuted data. Permuted PED files with all '
-        'covariates except the gene expression are required as input. The '
-        'testing procedure is based on the one from the 2015 GTEx project '
-        'paper (10.1126/science.1262110).'))
+        'This script runs EMMAX for a single gene. EMMAX is run for the "real" '
+        'data and permuted data. The testing procedure is based on the one '
+        'from the 2015 GTEx project paper (10.1126/science.1262110).'))
     parser.add_argument('gene_id', help=('Gene ID for gene to test. This '
-                                         'should be a column in the PED file.'))
+                                         'should be a column in the phenotypes '
+                                         'file.'))
     parser.add_argument('vcf', help=('VCF file with variants.'))
     parser.add_argument('regions', help=(
         'List of regions of the form chr3:100-200. Multiple regions are '
         'separated by commas: chr3:100-200,chr10:400-500. Biallelic SNVs in '
         'these regions will be tested.'))
-    parser.add_argument('ped', help=('PED file with covariates and gene '
-                                     'expression values.'))
-    parser.add_argument('kinf', help=('Kinship matrix file (.kinf).'))
+    parser.add_argument('phenotypes', 
+                        help=('TSV file with gene expression values. Index '
+                              'should be gene IDs and columns should be '
+                              'sample IDs that match the ind file.'))
+    parser.add_argument('ind', help=('ind file with positions of each sample '
+                                     'in the VCF header.'))
+    parser.add_argument('kin', help=('Kinship matrix file (.kinf).'))
     parser.add_argument('outdir', help=('Directory to store final results.'))
-    parser.add_argument('permuted_peds', help=(
-        'Directory with permuted ped files. All files with .ped suffix are '
-        'assumed to be permuted ped files. These files will be sorted by '
-        'filename and used in that order.'))
-    parser.add_argument('-c', metavar='covariates', help=(
-        'Covariates to include when running EMAX. Multiple covariates should '
-        'be separated by commas: SEX,AGE'), default=[])
+    parser.add_argument('-c', metavar='cov', 
+                        help=('Covariates file for EMMAX.'))
     parser.add_argument('-n', metavar='num_lesser_pval',
                         default=num_lesser_pval, type=int, help=(
                             'Minimum number of gene-level permutation p-values '
@@ -253,26 +300,18 @@ def main():
     gene_id = args.gene_id
     vcf = args.vcf
     regions = args.regions.split(',')
-    ped = args.ped
-    kinf = args.kinf
+    phenotypes = args.phenotypes
+    ind = args.ind
+    kin = args.kin
     outdir = args.outdir
-    permuted_peds = os.path.realpath(args.permuted_peds)
-    covariates = args.c.split(',')
+    cov = args.c
     num_lesser_pval = args.n
     min_permut = args.i
     max_permut = args.a
     tempdir = args.t
 
-    permuted_peds = glob.glob(os.path.join(permuted_peds, '*.ped'))
-    assert len(permuted_peds) >= min_permut, \
-            ('Not enough permuted PED files to perform minimum number of '
-             'permutations.')
-    assert len(permuted_peds) >= max_permut, \
-            ('Not enough permuted PED files to perform maximum number of '
-             'permutations.')
-
-    run_emmax(gene_id, vcf, regions, ped, kinf, tempdir, outdir, permuted_peds,
-              covariates=covariates, num_lesser_pval=num_lesser_pval,
+    run_emmax(gene_id, vcf, regions, phenotypes, ind, kin, tempdir, outdir,
+              cov=cov, num_lesser_pval=num_lesser_pval,
               min_permut=min_permut, max_permut=max_permut)
 
 if __name__ == '__main__':
