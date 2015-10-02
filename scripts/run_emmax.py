@@ -5,8 +5,34 @@ import shutil
 import subprocess
 import sys
 
+import cardipspy as cpy
 import pandas as pd
-import projectpy as ppy
+
+def _ind(indf, ind):
+    """
+    Make .ind file for EMMAX. The first column is individual ID and the second
+    column is the position of the sample in VCF file. Since I make the VCF based
+    on the input ind file, I just use the order of the samples to write the temp
+    ind file.
+    
+    Parameters
+    ----------
+    inf : str
+        Path for output ind file.
+
+    ind : str
+        Input ind file.
+
+    phenos : pandas.DataFrame
+        DataFrame with phenotype values.
+
+    permut : list
+        A list of indices to permute the phenotype data before writing it.
+
+    """
+    se = pd.read_table(ind, index_col=0, squeeze=True, header=None)
+    se = pd.Series(range(1, se.shape[0] + 1), index=se.index)
+    se.to_csv(indf, header=False, sep='\t')
 
 def _phe(phenof, gene_id, phenos, permut=None):
     """
@@ -48,7 +74,7 @@ def _reml(eigf, remlf, phe, ind, kin, cov=None):
     """
     c = ('{}/pEmmax reml --phenof {} --kinf {} --indf {} --out-eigf {} '
          '--out-remlf {}'.format(
-             os.path.split(ppy.epacts)[0],
+             os.path.split(cpy.epacts)[0],
              phe,
              kin,
              ind,
@@ -110,28 +136,33 @@ def run_emmax(gene_id, vcf, regions, phenotypes, ind, kin, tempdir, outdir,
     random.seed(20150605)
 
     tempdir = os.path.join(tempdir, gene_id)
-    ppy.makedir(tempdir)
+    cpy.makedir(tempdir)
 
     curdir = os.path.realpath(os.curdir)
     os.chdir(tempdir)
 
     # Make VCF file. This VCF file will only have biallelic SNVs in the regions
     # of interest.
-    vcf = _make_emmax_vcf(vcf, gene_id, tempdir, regions)
+    vcf = _make_emmax_vcf(vcf, gene_id, tempdir, regions, ind)
+
+    # Make ind file.
+    indf = os.path.join(tempdir, '{}.ind'.format(gene_id))
+    _ind(indf, ind)
 
     # Make phe file.
-    phenos = pd.read_table(phenotypes, index_col=0)
+    order = pd.read_table(ind, index_col=0, header=None)
+    phenos = pd.read_table(phenotypes, index_col=0)[order.index]
     phenof = os.path.join(tempdir, '{}.phe'.format(gene_id))
     _phe(phenof, gene_id, phenos)
     
     # Make reml file.
     eigf = os.path.join(tempdir, '{}.eigR'.format(gene_id))
-    remlf = os.path.join(tempdir, '{}.reml'.format(gene_id))
-    _reml(eigf, remlf, phenof, ind, kin, cov=cov)
+    remlf = os.path.join(outdir, '{}.reml'.format(gene_id))
+    _reml(eigf, remlf, phenof, indf, kin, cov=cov)
 
     # Run association.
     out = os.path.join(outdir, '{}.tsv'.format(gene_id))
-    _emmax(out, vcf, phenof, ind, eigf, remlf)
+    _emmax(out, vcf, phenof, indf, eigf, remlf)
     _emmax_cleanup(gene_id)
     real_res = pd.read_table(out)
     min_pval = real_res.PVALUE.min()
@@ -139,6 +170,7 @@ def run_emmax(gene_id, vcf, regions, phenotypes, ind, kin, tempdir, outdir,
     # Do the previous steps for permutations.
     pvalues = []
     min_pvalues = []
+    reml_info = []
     i = 0
     num_lesser_pvals = 0
     while i < max_permut:
@@ -148,11 +180,10 @@ def run_emmax(gene_id, vcf, regions, phenotypes, ind, kin, tempdir, outdir,
         _phe(phenof, gene_id, phenos, permut=p)
         eigf = os.path.join(tempdir, '{}.eigR'.format(gene_id))
         remlf = os.path.join(tempdir, '{}.reml'.format(gene_id))
-        _reml(eigf, remlf, phenof, ind, kin, cov=cov)
+        _reml(eigf, remlf, phenof, indf, kin, cov=cov)
         out = os.path.join(tempdir, '{}_permutation_{}.tsv'.format(
             gene_id, str(i + 1).zfill(len(str(max_permut)))))
-        _emmax(out, vcf, phenof, ind, eigf, remlf)
-        _emmax_cleanup(gene_id)
+        _emmax(out, vcf, phenof, indf, eigf, remlf)
 
         # Read results.
         res = pd.read_table(out)
@@ -161,15 +192,16 @@ def run_emmax(gene_id, vcf, regions, phenotypes, ind, kin, tempdir, outdir,
         pvalues.append(res.PVALUE)
         m = res.PVALUE.min()
         min_pvalues.append(m)
+        reml_info.append(pd.read_table(remlf, header=None, index_col=0,
+                                       squeeze=True))
         if m < min_pval:
             num_lesser_pvals += 1
         if (num_lesser_pvals >= num_lesser_pval) and (i + 1 >= min_permut):
             break
         i += 1
-        if i % 50 == 0:
-            sys.stderr.write('Finished {} permutations'.format(i))
         os.remove(out)
         
+        _emmax_cleanup(gene_id)
 
     # Remove VCF file.
     os.remove('{}.vcf.gz'.format(gene_id))
@@ -181,6 +213,9 @@ def run_emmax(gene_id, vcf, regions, phenotypes, ind, kin, tempdir, outdir,
     min_pvalues = pd.Series(min_pvalues, index=None)
     min_pvalues.to_csv(os.path.join(outdir, 'minimum_pvalues.tsv'), sep='\t',
                        index=None)
+    reml_info = pd.DataFrame(reml_info)
+    reml_info.to_csv(os.path.join(outdir, 'permuted_reml.tsv'), sep='\t',
+                     index=None)
     
     shutil.rmtree(tempdir)
 
@@ -200,7 +235,7 @@ def _emmax(out, vcf, phe, ind, eig, reml):
     c = ('{}/pEmmax assoc --vcf {} --phenof {} --field GT --indf {} --eigf {} '
          '--remlf {} --out-assocf {} --minMAF 0.1 --maxMAF 1 --maxMAC '
          '1000000000 --minRSQ 0 --minCallRate 0.5 --minMAC 3'.format(
-             os.path.split(ppy.epacts)[0],
+             os.path.split(cpy.epacts)[0],
              vcf,
              phe,
              ind,
@@ -220,21 +255,24 @@ def _emmax_cleanup(prefix):
         if os.path.exists(fn):
             os.remove(fn)
 
-def _make_emmax_vcf(vcf, gene_id, tempdir, regions):
-    import ciepy as cpy
+def _make_emmax_vcf(vcf, gene_id, tempdir, regions, ind):
+    import ciepy
 
+    ind = pd.read_table(ind, index_col=0, header=None)
     fn = os.path.join(tempdir, '{}.vcf.gz'.format(gene_id))
-    c = ('{} view {} -q 0.1:minor -m2 -M2 -v snps -r {} | '
-         '{} annotate --rename-chrs {} -O z > {}'.format(
-             ppy.bcftools,
+    c = ('{} view {} -q 0.1:minor -m2 -M2 -v snps -r {} -s {} | '
+         '{} filter -m x | {} annotate --rename-chrs {} -O z > {}'.format(
+             cpy.bcftools,
              vcf,
              ','.join(regions),
-             ppy.bcftools,
-             os.path.join(cpy.root, 'data', 'chromosome_conversion.txt'),
+             ','.join(ind.index),
+             cpy.bcftools,
+             cpy.bcftools,
+             os.path.join(ciepy.root, 'data', 'chromosome_conversion.txt'),
              fn))
     subprocess.check_call(c, shell=True)
 
-    c = ('{} index --tbi {}'.format(ppy.bcftools, fn))
+    c = ('{} index --tbi {}'.format(cpy.bcftools, fn))
     subprocess.check_call(c, shell=True)
     return fn
     
@@ -244,7 +282,7 @@ def _delete_extra_files(prefix):
     """
     to_delete = ['cov', 'eigR', 'epacts.conf', 'epacts.gz.tbi', 'epacts.mh.pdf',
                  'epacts.OK', 'epacts.qq.pdf', 'epacts.R', 'epacts.top5000',
-                 'ind', 'Makefile', 'phe', 'reml']
+                 'ind', 'Makefile', 'phe', 'reml', 'ind']
     for suffix in to_delete:
         fn = '{}.{}'.format(prefix, suffix)
         if os.path.exists(fn):
