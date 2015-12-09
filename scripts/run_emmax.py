@@ -5,7 +5,6 @@ import shutil
 import subprocess
 import sys
 
-import cardipspy as cpy
 import pandas as pd
 
 def _ind(indf, ind):
@@ -59,7 +58,7 @@ def _phe(phenof, gene_id, phenos, permut=None):
         se = pd.Series(se.values[permut], index=se.index)
     se.to_csv(phenof, header=False, sep='\t')
 
-def _reml(eigf, remlf, phe, ind, kin, cov=None):
+def _reml(eigf, remlf, phe, ind, kin, pEmmax_path, cov=None):
     """
     Make reml file for EMMAX.
     
@@ -72,9 +71,9 @@ def _reml(eigf, remlf, phe, ind, kin, cov=None):
         Path for output reml file.
 
     """
-    c = ('{}/pEmmax reml --phenof {} --kinf {} --indf {} --out-eigf {} '
+    c = ('{} reml --phenof {} --kinf {} --indf {} --out-eigf {} '
          '--out-remlf {}'.format(
-             os.path.split(cpy.epacts)[0],
+             pEmmax_path,
              phe,
              kin,
              ind,
@@ -84,8 +83,22 @@ def _reml(eigf, remlf, phe, ind, kin, cov=None):
         c += ' --covf {}'.format(cov)
     subprocess.check_call(c, shell=True)
 
-def run_emmax(gene_id, vcf, regions, phenotypes, ind, kin, tempdir, outdir,
-              cov=None, num_lesser_pval=15, min_permut=1000, max_permut=10000):
+def run_emmax(
+    gene_id, 
+    vcf, 
+    regions, 
+    phenotypes, 
+    ind, 
+    kin, 
+    tempdir, 
+    outdir,
+    cov=None, 
+    num_lesser_pval=15, 
+    min_permut=1000, 
+    max_permut=10000,
+    bcftools_path='bcftools',
+    pEmmax_path='pEmmax',
+):
     """
     Run EMMAX for a single gene given a ped file and permuted ped files.
     
@@ -97,7 +110,7 @@ def run_emmax(gene_id, vcf, regions, phenotypes, ind, kin, tempdir, outdir,
         Gencode gene ID for gene to test.
         
     regions : list
-        List of strings of the form 'chr1:100-200'. Biallelic SNVs in these
+        List of strings of the form 'chr1:100-200'. Biallelic variants in these
         regions will be tested.
 
     phenotypes : str
@@ -136,14 +149,17 @@ def run_emmax(gene_id, vcf, regions, phenotypes, ind, kin, tempdir, outdir,
     random.seed(20150605)
 
     tempdir = os.path.join(tempdir, gene_id)
-    cpy.makedir(tempdir)
+    try:
+        os.makedirs(tempdir)
+    except OSError:
+        pass
 
     curdir = os.path.realpath(os.curdir)
     os.chdir(tempdir)
 
-    # Make VCF file. This VCF file will only have biallelic SNVs in the regions
-    # of interest.
-    vcf = _make_emmax_vcf(vcf, gene_id, tempdir, regions, ind)
+    # Make VCF file. This VCF file will only have biallelic variants in the
+    # regions of interest.
+    vcf = _make_emmax_vcf(vcf, gene_id, tempdir, regions, ind, bcftools_path)
 
     # Make ind file.
     indf = os.path.join(tempdir, '{}.ind'.format(gene_id))
@@ -158,11 +174,11 @@ def run_emmax(gene_id, vcf, regions, phenotypes, ind, kin, tempdir, outdir,
     # Make reml file.
     eigf = os.path.join(tempdir, '{}.eigR'.format(gene_id))
     remlf = os.path.join(outdir, '{}.reml'.format(gene_id))
-    _reml(eigf, remlf, phenof, indf, kin, cov=cov)
+    _reml(eigf, remlf, phenof, indf, kin, pEmmax_path, cov=cov)
 
     # Run association.
     out = os.path.join(outdir, '{}.tsv'.format(gene_id))
-    _emmax(out, vcf, phenof, indf, eigf, remlf)
+    _emmax(out, vcf, phenof, indf, eigf, remlf, pEmmax_path)
     _emmax_cleanup(gene_id)
     real_res = pd.read_table(out)
     min_pval = real_res.PVALUE.min()
@@ -180,10 +196,10 @@ def run_emmax(gene_id, vcf, regions, phenotypes, ind, kin, tempdir, outdir,
         _phe(phenof, gene_id, phenos, permut=p)
         eigf = os.path.join(tempdir, '{}.eigR'.format(gene_id))
         remlf = os.path.join(tempdir, '{}.reml'.format(gene_id))
-        _reml(eigf, remlf, phenof, indf, kin, cov=cov)
+        _reml(eigf, remlf, phenof, indf, kin, pEmmax_path, cov=cov)
         out = os.path.join(tempdir, '{}_permutation_{}.tsv'.format(
             gene_id, str(i + 1).zfill(len(str(max_permut)))))
-        _emmax(out, vcf, phenof, indf, eigf, remlf)
+        _emmax(out, vcf, phenof, indf, eigf, remlf, pEmmax_path)
 
         # Read results.
         res = pd.read_table(out)
@@ -219,7 +235,7 @@ def run_emmax(gene_id, vcf, regions, phenotypes, ind, kin, tempdir, outdir,
     
     shutil.rmtree(tempdir)
 
-def _emmax(out, vcf, phe, ind, eig, reml):
+def _emmax(out, vcf, phe, ind, eig, reml, pEmmax_path):
     """
     Execute EMMAX command.
 
@@ -229,13 +245,13 @@ def _emmax(out, vcf, phe, ind, eig, reml):
         Output file?
     
     vcf : str
-        Path to VCF file that contains only the SNVs to test.
+        Path to VCF file that contains only the variants to test.
         
     """
-    c = ('{}/pEmmax assoc --vcf {} --phenof {} --field GT --indf {} --eigf {} '
+    c = ('{} assoc --vcf {} --phenof {} --field GT --indf {} --eigf {} '
          '--remlf {} --out-assocf {} --minMAF 0.1 --maxMAF 1 --maxMAC '
          '1000000000 --minRSQ 0 --minCallRate 0.5 --minMAC 3'.format(
-             os.path.split(cpy.epacts)[0],
+             pEmmax_path,
              vcf,
              phe,
              ind,
@@ -255,39 +271,25 @@ def _emmax_cleanup(prefix):
         if os.path.exists(fn):
             os.remove(fn)
 
-def _make_emmax_vcf(vcf, gene_id, tempdir, regions, ind):
+def _make_emmax_vcf(vcf, gene_id, tempdir, regions, ind, bcftools_path):
     import ciepy
 
     ind = pd.read_table(ind, index_col=0, header=None)
     fn = os.path.join(tempdir, '{}.vcf.gz'.format(gene_id))
-    c = ('{} view {} -q 0.1:minor -m2 -M2 -v snps -r {} -s {} | '
-         '{} filter -m x | {} annotate --rename-chrs {} -O z > {}'.format(
-             cpy.bcftools,
+    c = ('{} view {} -q 0.05:minor -m2 -M2 -r {} -s {} -O u | '
+         '{} filter -m x -O z > {}'.format(
+             bcftools_path,
              vcf,
              ','.join(regions),
              ','.join(ind.index),
-             cpy.bcftools,
-             cpy.bcftools,
-             os.path.join(ciepy.root, 'data', 'chromosome_conversion.txt'),
+             bcftools_path,
              fn))
     subprocess.check_call(c, shell=True)
 
-    c = ('{} index --tbi {}'.format(cpy.bcftools, fn))
+    c = ('{} index --tbi {}'.format(bcftools_path, fn))
     subprocess.check_call(c, shell=True)
     return fn
     
-def _delete_extra_files(prefix):
-    """
-    Delete extra EMMAX files that we don't need.
-    """
-    to_delete = ['cov', 'eigR', 'epacts.conf', 'epacts.gz.tbi', 'epacts.mh.pdf',
-                 'epacts.OK', 'epacts.qq.pdf', 'epacts.R', 'epacts.top5000',
-                 'ind', 'Makefile', 'phe', 'reml', 'ind']
-    for suffix in to_delete:
-        fn = '{}.{}'.format(prefix, suffix)
-        if os.path.exists(fn):
-            os.remove(fn)
-
 def main():
     import glob
 
@@ -295,6 +297,8 @@ def main():
     min_permut = 1000
     max_permut = 10000
     tempdir = '/dev/shm'
+    bcftools_path = 'bcftools'
+    pEmmax_path = 'pEmmax'
     parser = argparse.ArgumentParser(description=(
         'This script runs EMMAX for a single gene. EMMAX is run for the "real" '
         'data and permuted data. The testing procedure is based on the one '
@@ -305,8 +309,8 @@ def main():
     parser.add_argument('vcf', help=('VCF file with variants.'))
     parser.add_argument('regions', help=(
         'List of regions of the form chr3:100-200. Multiple regions are '
-        'separated by commas: chr3:100-200,chr10:400-500. Biallelic SNVs in '
-        'these regions will be tested.'))
+        'separated by commas: chr3:100-200,chr10:400-500. Biallelic variants '
+        'in these regions will be tested.'))
     parser.add_argument('phenotypes', 
                         help=('TSV file with gene expression values. Index '
                               'should be gene IDs and columns should be '
@@ -334,6 +338,12 @@ def main():
     parser.add_argument('-t', metavar='tempdir', help=(
         'Temporary directory. Default: {}.'.format(tempdir)),
                         default=tempdir)
+    parser.add_argument('-b', metavar='bcftools_path', help=(
+        'Path to bcftools. Default: {}.'.format(bcftools_path)),
+                        default=bcftools_path)
+    parser.add_argument('-e', metavar='pEmmax_path', help=(
+        'Path to pEmmax. Default: {}.'.format(pEmmax_path)),
+        default=pEmmax_path)
     args = parser.parse_args()
     gene_id = args.gene_id
     vcf = args.vcf
@@ -348,9 +358,22 @@ def main():
     max_permut = args.a
     tempdir = args.t
 
-    run_emmax(gene_id, vcf, regions, phenotypes, ind, kin, tempdir, outdir,
-              cov=cov, num_lesser_pval=num_lesser_pval,
-              min_permut=min_permut, max_permut=max_permut)
+    run_emmax(
+        gene_id, 
+        vcf, 
+        regions, 
+        phenotypes, 
+        ind, 
+        kin, 
+        tempdir, 
+        outdir,
+        cov=cov, 
+        num_lesser_pval=num_lesser_pval,
+        min_permut=min_permut, 
+        max_permut=max_permut,
+        bcftools_path=bcftools_path,
+        pEmmax_path=pEmmax_path,
+    )
 
 if __name__ == '__main__':
     main()
