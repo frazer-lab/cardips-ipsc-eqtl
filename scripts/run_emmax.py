@@ -228,21 +228,15 @@ def run_emmax(
     os.remove('{}.vcf.gz'.format(gene_id))
     os.remove('{}.vcf.gz.tbi'.format(gene_id))
    
-    # out = open(os.path.join(outdir, 'permuted_pvalues.tsv'), 'w')
-    # for fn in pvalues:
-    #     with open(fn) as f:
-    #         lines = [x.strip().replace('""', '') for x in f.readlines()]
-    #     out.write('\t'.join(lines) + '\n')
-    # out.close()
-    c = 'paste {} > {}'.format(' '.join(pvalues), 
-                               os.path.join(outdir, 'permuted_pvalues.tsv'))
-    subprocess.check_call(c, shell=True)
+    out = open(os.path.join(outdir, 'permuted_pvalues.tsv'), 'w')
+    for fn in pvalues:
+        with open(fn) as f:
+            lines = [x.strip() for x in f.readlines()]
+        out.write('\t'.join(lines) + '\n')
+    out.close()
     for fn in pvalues:
         os.remove(fn)
 
-    # pvalues = pd.DataFrame(pvalues).T
-    # pvalues.to_csv(os.path.join(outdir, 'permuted_pvalues.tsv'), index=None, 
-    #                sep='\t', header=None)
     min_pvalues = pd.Series(min_pvalues, index=None)
     min_pvalues.to_csv(os.path.join(outdir, 'minimum_pvalues.tsv'), sep='\t',
                        index=None)
