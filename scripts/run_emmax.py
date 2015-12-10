@@ -182,6 +182,7 @@ def run_emmax(
     _emmax_cleanup(gene_id)
     real_res = pd.read_table(out)
     min_pval = real_res.PVALUE.min()
+    # real_res = None
 
     # Do the previous steps for permutations.
     pvalues = []
@@ -205,7 +206,11 @@ def run_emmax(
         res = pd.read_table(out)
         res.index = ('chr' + res['#CHROM'].astype(str) + ':' + 
                      res.BEG.astype(str))
-        pvalues.append(res.PVALUE)
+        fn = os.path.join(tempdir, '{}_pvalues.tsv'.format(i))
+        se = res.PVALUE.astype(str).copy(deep=True).replace('nan', '')
+        with open(fn, 'w') as f:
+            f.write('\n'.join(se.values) + '\n')
+        pvalues.append(fn)
         m = res.PVALUE.min()
         min_pvalues.append(m)
         reml_info.append(pd.read_table(remlf, header=None, index_col=0,
@@ -223,9 +228,21 @@ def run_emmax(
     os.remove('{}.vcf.gz'.format(gene_id))
     os.remove('{}.vcf.gz.tbi'.format(gene_id))
    
-    pvalues = pd.DataFrame(pvalues).T
-    pvalues.to_csv(os.path.join(outdir, 'permuted_pvalues.tsv'), index=None, 
-                   sep='\t', header=None)
+    # out = open(os.path.join(outdir, 'permuted_pvalues.tsv'), 'w')
+    # for fn in pvalues:
+    #     with open(fn) as f:
+    #         lines = [x.strip().replace('""', '') for x in f.readlines()]
+    #     out.write('\t'.join(lines) + '\n')
+    # out.close()
+    c = 'paste {} > {}'.format(' '.join(pvalues), 
+                               os.path.join(outdir, 'permuted_pvalues.tsv'))
+    subprocess.check_call(c, shell=True)
+    for fn in pvalues:
+        os.remove(fn)
+
+    # pvalues = pd.DataFrame(pvalues).T
+    # pvalues.to_csv(os.path.join(outdir, 'permuted_pvalues.tsv'), index=None, 
+    #                sep='\t', header=None)
     min_pvalues = pd.Series(min_pvalues, index=None)
     min_pvalues.to_csv(os.path.join(outdir, 'minimum_pvalues.tsv'), sep='\t',
                        index=None)
