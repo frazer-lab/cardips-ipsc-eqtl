@@ -98,6 +98,7 @@ def run_emmax(
     max_permut=10000,
     bcftools_path='bcftools',
     pEmmax_path='pEmmax',
+    verbose=False,
 ):
     """
     Run EMMAX for a single gene given a ped file and permuted ped files.
@@ -147,6 +148,8 @@ def run_emmax(
     """
     import random
     random.seed(20150605)
+    if verbose:
+        import datetime
 
     tempdir = os.path.join(tempdir, gene_id)
     try:
@@ -160,26 +163,46 @@ def run_emmax(
     # Make VCF file. This VCF file will only have biallelic variants in the
     # regions of interest.
     vcf = _make_emmax_vcf(vcf, gene_id, tempdir, regions, ind, bcftools_path)
+    if verbose:
+        res = str(datetime.datetime.now())
+        sys.stdout.write('VCF file created at {}.\n'.format(res))
+        sys.stdout.flush()
 
     # Make ind file.
     indf = os.path.join(tempdir, '{}.ind'.format(gene_id))
     _ind(indf, ind)
+    if verbose:
+        res = str(datetime.datetime.now())
+        sys.stdout.write('ind file created at {}.\n'.format(res))
+        sys.stdout.flush()
 
     # Make phe file.
     order = pd.read_table(ind, index_col=0, header=None)
     phenos = pd.read_table(phenotypes, index_col=0)[order.index]
     phenof = os.path.join(tempdir, '{}.phe'.format(gene_id))
     _phe(phenof, gene_id, phenos)
+    if verbose:
+        res = str(datetime.datetime.now())
+        sys.stdout.write('phe file created at {}.\n'.format(res))
+        sys.stdout.flush()
     
     # Make reml file.
     eigf = os.path.join(tempdir, '{}.eigR'.format(gene_id))
     remlf = os.path.join(outdir, '{}.reml'.format(gene_id))
     _reml(eigf, remlf, phenof, indf, kin, pEmmax_path, cov=cov)
+    if verbose:
+        res = str(datetime.datetime.now())
+        sys.stdout.write('reml file created at {}.\n'.format(res))
+        sys.stdout.flush()
 
     # Run association.
     out = os.path.join(outdir, '{}.tsv'.format(gene_id))
     _emmax(out, vcf, phenof, indf, eigf, remlf, pEmmax_path)
     _emmax_cleanup(gene_id)
+    if verbose:
+        res = str(datetime.datetime.now())
+        sys.stdout.write('First association completed at {}.\n'.format(res))
+        sys.stdout.flush()
     real_res = pd.read_table(out)
     min_pval = real_res.PVALUE.min()
 
@@ -189,6 +212,10 @@ def run_emmax(
     reml_info = []
     i = 0
     num_lesser_pvals = 0
+    if verbose:
+        res = str(datetime.datetime.now())
+        sys.stdout.write('Permutations started at {}.\n'.format(res))
+        sys.stdout.flush()
     while i < max_permut:
         # Run EMMAX for this permutation.
         p = random.sample(range(phenos.shape[1]), phenos.shape[1])
@@ -218,10 +245,18 @@ def run_emmax(
         os.remove(out)
         
         _emmax_cleanup(gene_id)
+        if verbose:
+            res = str(datetime.datetime.now())
+            sys.stdout.write('Permutation {} completed at {}.\n'.format(i, res))
+        sys.stdout.flush()
 
     # Remove VCF file.
     os.remove('{}.vcf.gz'.format(gene_id))
     os.remove('{}.vcf.gz.tbi'.format(gene_id))
+    if verbose:
+        res = str(datetime.datetime.now())
+        sys.stdout.write('VCF file removed at {}.\n'.format(i, res))
+        sys.stdout.flush()
    
     pvalues = pd.DataFrame(pvalues).T
     pvalues.to_csv(os.path.join(outdir, 'permuted_pvalues.tsv'), index=None, 
@@ -234,6 +269,10 @@ def run_emmax(
                      index=None)
     
     shutil.rmtree(tempdir)
+    if verbose:
+        res = str(datetime.datetime.now())
+        sys.stdout.write('Finished at {}.\n'.format(i, res))
+        sys.stdout.flush()
 
 def _emmax(out, vcf, phe, ind, eig, reml, pEmmax_path):
     """
@@ -344,6 +383,8 @@ def main():
     parser.add_argument('-e', metavar='pEmmax_path', help=(
         'Path to pEmmax. Default: {}.'.format(pEmmax_path)),
         default=pEmmax_path)
+    parser.add_argument('--verbose', help=(
+        'Print log information to stdout.'), action='store_true')
     args = parser.parse_args()
     gene_id = args.gene_id
     vcf = args.vcf
@@ -357,6 +398,9 @@ def main():
     min_permut = args.i
     max_permut = args.a
     tempdir = args.t
+    bcftools_path = args.b
+    pEmmax_path = args.e
+    verbose = args.verbose
 
     run_emmax(
         gene_id, 
@@ -373,6 +417,7 @@ def main():
         max_permut=max_permut,
         bcftools_path=bcftools_path,
         pEmmax_path=pEmmax_path,
+        verbose=verbose,
     )
 
 if __name__ == '__main__':
