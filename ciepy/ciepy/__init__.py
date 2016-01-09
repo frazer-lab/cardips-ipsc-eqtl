@@ -38,3 +38,28 @@ def read_emmax_output(fn):
     res = pd.read_table(fn, index_col=None)
     res.columns = [c.replace('#', '') for c in res.columns]
     return res
+
+def calc_bed_enrichment_from_url(url, variants, variants_window):
+    """Calculate enrichment for bed file from a URL for variants
+    vs. variants_window"""
+    bt = pbt.BedTool(cpb.general.read_gzipped_text_url(url), from_string=True)
+    bt = bt.sort()
+    bt = bt.merge()
+    res = variants.intersect(bt, sorted=True, wo=True)
+    eqtl_in_peak = len(res)
+    eqtl_out_peak = len(variants) - eqtl_in_peak
+
+    res = variants_window.intersect(bt, sorted=True, wo=True)
+    not_eqtl_in_peak = 0
+    for r in res:
+        not_eqtl_in_peak += int(r.fields[-1])
+    not_eqtl_in_peak -= eqtl_in_peak
+    
+    total = 0
+    for r in variants_window:
+        total += r.length
+    not_eqtl_out_peak = total - not_eqtl_in_peak - eqtl_in_peak - eqtl_out_peak
+    
+    oddsratio, p = scipy.stats.fisher_exact([[eqtl_in_peak, eqtl_out_peak],
+                                             [not_eqtl_in_peak, not_eqtl_out_peak]])
+    return url, oddsratio, p

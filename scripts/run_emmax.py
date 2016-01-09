@@ -213,12 +213,15 @@ def run_emmax(
         sys.stdout.flush()
 
     # Make cov file.
-    covf = os.path.join(tempdir, '{}.cov'.format(gene_id))
-    _cov(covf, covariates, sorted_samples)
-    if verbose:
-        res = str(datetime.datetime.now())
-        sys.stdout.write('cov file created at {}.\n'.format(res))
-        sys.stdout.flush()
+    if covariates:
+        covf = os.path.join(tempdir, '{}.cov'.format(gene_id))
+        _cov(covf, covariates, sorted_samples)
+        if verbose:
+            res = str(datetime.datetime.now())
+            sys.stdout.write('cov file created at {}.\n'.format(res))
+            sys.stdout.flush()
+    else:
+        covf = None
 
     # Make phe file.
     phenos = pd.read_table(phenotypes, index_col=0)
@@ -418,7 +421,7 @@ def main():
         'data and permuted data. The testing procedure is based on the one '
         'from the 2015 GTEx project paper (10.1126/science.1262110).'))
     parser.add_argument('gene_id', help=('Gene ID for gene to test. This '
-                                         'should be a column in the phenotypes '
+                                         'should be a row in the phenotypes '
                                          'file.'))
     parser.add_argument('vcf', help=('Compressed, indexed VCF file with '
                                      'all variants.'))
