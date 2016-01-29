@@ -37,7 +37,7 @@ that were significant in `eqtl01` using the lead variant as a covariate, etc.
 Each subdir has the following files:
 
 * `lead_variants.tsv` - This file has the lead variants for all genes including
-  variants that equally significant.
+  variants that are equally significant.
 * `lead_variants_single.tsv` - This file has a single lead variant for each
   gene. I choose randomly if there are ties.
 * `pvalues.tsv` - This file has the permutation p-value for each gene.
@@ -50,6 +50,31 @@ Each subdir has the following files:
 * `independent_lead_snvs.tsv` - This file is created by LD pruning the variants
   in `sig_lead_snvs_single.tsv`.
 * `independent_lead_snvs.bed` - Bed file for `independent_lead_snvs.bed`.
+
+#### `input_data`
+
+The files in this directory are created from data only available on the Frazer
+lab server. These files serve as input files throughout the project. Some of
+the files are:
+
+* `cnvs.tsv` - CNVs discovered between reprogrammed stem cells and blood cells.
+* `mbased_major_allele_freq.tsv` - Major allele frequency estimate (i.e. the
+percent of transcripts estimated to come from the dominantly-expressed allele)
+from MBASED. If a value is missing, that means MBASED didn't have enough
+variants or coverage to use the gene in that sample.
+* `mbased_p_val_ase.tsv` - ASE p-value from MBASED. If a value is missing, that
+means MBASED didn't have enough variants or coverage to use the gene in that
+sample.
+* `mbased_p_val_het.tsv` - ASE heterogeneous p-value from MBASED. This means
+that the gene seems to have some sort of transcript regulation where some het
+variants are imbalanced and others aren't. If a value is missing, that means
+MBASED didn't have enough variants or coverage to use the gene in that sample.
+* `rnaseq_metadata.tsv` - Metadata for RNA-seq samples.
+* `rsem_tpm.tsv` - RSEM TPM values for all samples used in this study.
+* `star_logs.tsv` - Contents of STAR `Log.final.out` files for all samples used
+in this study.
+* `subject_metadata.tsv` - Metadata for each subject (person) in this study.
+* `wgs_metadata.tsv` - Metadata for each WGS samples used in this study.
 
 ### `private_output`
 
