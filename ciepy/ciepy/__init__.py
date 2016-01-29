@@ -63,3 +63,21 @@ def calc_bed_enrichment_from_url(url, variants, variants_window):
     oddsratio, p = scipy.stats.fisher_exact([[eqtl_in_peak, eqtl_out_peak],
                                              [not_eqtl_in_peak, not_eqtl_out_peak]])
     return url, oddsratio, p
+
+def clean_axis(ax):
+    "Remove spines and ticks from axis"
+    ax.get_xaxis().set_ticks([])
+    ax.get_yaxis().set_ticks([])
+    for sp in ax.spines.values():
+        sp.set_visible(False)
+
+def _comma_func(x, pos):
+    """
+    Formatter function takes tick label and tick position.
+    """
+    s = '{:0,d}'.format(int(x))
+    return s
+
+# Use: ax.yaxis.set_major_formatter(ds.comma_format)
+import matplotlib.ticker as tkr
+comma_format = tkr.FuncFormatter(_comma_func)

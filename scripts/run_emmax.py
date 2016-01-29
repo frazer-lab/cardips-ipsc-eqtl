@@ -109,7 +109,7 @@ def _reml(eigf, remlf, phef, indf, kinf, pEmmax_path, covf=None):
 
 def run_emmax(
     gene_id, 
-    vcf, 
+    vcfs, 
     regions, 
     phenotypes, 
     samples, 
@@ -197,7 +197,7 @@ def run_emmax(
 
     # Make VCF file. This VCF file will only have biallelic variants in the
     # regions of interest.
-    vcf = _make_emmax_vcf(vcf, gene_id, tempdir, regions, sorted_samples, maf,
+    vcf = _make_emmax_vcf(vcfs, gene_id, tempdir, regions, sorted_samples, maf,
                           bcftools_path)
     if verbose:
         res = str(datetime.datetime.now())
@@ -358,7 +358,7 @@ def _emmax_cleanup(prefix):
             continue
 
 def _make_emmax_vcf(
-    vcf, 
+    vcfs, 
     gene_id, 
     tempdir, 
     regions, 
@@ -373,8 +373,8 @@ def _make_emmax_vcf(
     Parameters
     ----------
     vcf : str
-        Path to VCF file with all samples and variants. Must be compressed and
-        indexed.
+        List of paths to VCF files with samples and variants. Must be compressed
+        and indexed.
 
     gene_id : str
         Gene ID used for naming files.
@@ -390,20 +390,46 @@ def _make_emmax_vcf(
         will be filtered out.
 
     """
-    fn = os.path.join(tempdir, '{}.vcf.gz'.format(gene_id))
-    c = ('{} view {} -q {}:minor -m2 -M2 -r {} -s {} -O u | '
-         '{} filter -m x -O z > {}'.format(
-             bcftools_path,
-             vcf,
-             maf,
-             ','.join(regions),
-             ','.join(samples.values),
-             bcftools_path,
-             fn))
-    subprocess.check_call(c, shell=True)
+    if len(vcfs) == 1:
+        fn = os.path.join(tempdir, '{}.vcf.gz'.format(gene_id))
+        c = ('{} view {} -q {}:minor -m2 -M2 -r {} -s {} -O u | '
+             '{} filter -m x -O z > {}'.format(
+                 bcftools_path,
+                 vcfs[0],
+                 maf,
+                 ','.join(regions),
+                 ','.join(samples.values),
+                 bcftools_path,
+                 fn))
+        subprocess.check_call(c, shell=True)
+        c = ('{} index --tbi {}'.format(bcftools_path, fn))
+        subprocess.check_call(c, shell=True)
+    else:
+        temp_vcfs = []
+        for i,v in enumerate(vcfs):
+            fn = os.path.join(tempdir, '{}.vcf.gz'.format(i))
+            temp_vcfs.append(fn)
+            c = ('{} view {} -q {}:minor -m2 -M2 -r {} -s {} -O u | '
+                 '{} filter -m x -O z > {}'.format(
+                     bcftools_path,
+                     v,
+                     maf,
+                     ','.join(regions),
+                     ','.join(samples.values),
+                     bcftools_path,
+                     fn))
+            subprocess.check_call(c, shell=True)
+            c = ('{} index --tbi {}'.format(bcftools_path, fn))
+            subprocess.check_call(c, shell=True)
+        fn = os.path.join(tempdir, '{}.vcf.gz'.format(gene_id))
+        c = '{} concat -Oz -a {} > {}'.format(
+            bcftools_path, ' '.join(temp_vcfs), fn)
+        subprocess.check_call(c, shell=True)
+        c = ('{} index --tbi {}'.format(bcftools_path, fn))
+        subprocess.check_call(c, shell=True)
+        for v in temp_vcfs:
+            os.remove(v)
 
-    c = ('{} index --tbi {}'.format(bcftools_path, fn))
-    subprocess.check_call(c, shell=True)
     return fn
     
 def main():
@@ -423,8 +449,10 @@ def main():
     parser.add_argument('gene_id', help=('Gene ID for gene to test. This '
                                          'should be a row in the phenotypes '
                                          'file.'))
-    parser.add_argument('vcf', help=('Compressed, indexed VCF file with '
-                                     'all variants.'))
+    parser.add_argument('vcfs', help=('Compressed, indexed VCF files with '
+                                      'variants to test. VCFs in regions will'
+                                      'be extracted and concatenated. Files '
+                                      'should be separated by commas.'))
     parser.add_argument('regions', help=(
         'List of regions of the form chr3:100-200 or (3:100-200 depending on '
         'your VCF. Multiple regions are '
@@ -478,7 +506,7 @@ def main():
         'Print log information to stdout.'), action='store_true')
     args = parser.parse_args()
     gene_id = args.gene_id
-    vcf = args.vcf
+    vcfs = args.vcfs.split(',')
     regions = args.regions.split(',')
     phenotypes = args.phenotypes
     samples = args.samples
@@ -496,7 +524,7 @@ def main():
 
     run_emmax(
         gene_id, 
-        vcf, 
+        vcfs, 
         regions, 
         phenotypes, 
         samples, 
