@@ -180,7 +180,7 @@ def run_emmax(
     """
     if verbose:
         import datetime
-
+    
     tempdir = os.path.join(tempdir, gene_id)
     try:
         os.makedirs(tempdir)
