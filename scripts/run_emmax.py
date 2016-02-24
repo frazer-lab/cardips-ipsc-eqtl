@@ -429,6 +429,7 @@ def _make_emmax_vcf(
         subprocess.check_call(c, shell=True)
         for v in temp_vcfs:
             os.remove(v)
+            os.remove('{}.tbi'.format(v))
 
     return fn
     
