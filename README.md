@@ -34,12 +34,16 @@ This directory contains subdirectories for each eQTL analysis I've run. Subdirs
 of the form `eqt[number]` are results from using all samples. `eqtl01` is for
 the initial eQTL analysis, `eqtl02` is the secondary analysis for all genes
 that were significant in `eqtl01` using the lead variant as a covariate, etc.
+
 Each subdir has the following files:
 
-* `lead_variants.tsv` - This file has the lead variants for all genes including
-  variants that are equally significant.
+* `lead_variants.tsv` - This file has the lead variants for *all* genes
+  including variants that are equally significant. Note that this file includes
+  genes that were not significant. The `perm_sig` column indicates whether a
+  gene was an eGene.
 * `lead_variants_single.tsv` - This file has a single lead variant for each
-  gene. I choose randomly if there are ties.
+  gene. I choose randomly if there are ties. This file also contains *all*
+  genes, not just significant genes.
 * `pvalues.tsv` - This file has the permutation p-value for each gene.
 * `qvalues.tsv` - This file has the permutation p-value, the q-value, and
   whether the gene is significant.
@@ -50,6 +54,18 @@ Each subdir has the following files:
 * `independent_lead_snvs.tsv` - This file is created by LD pruning the variants
   in `sig_lead_snvs_single.tsv`.
 * `independent_lead_snvs.bed` - Bed file for `independent_lead_snvs.bed`.
+* `all_results_sorted.tsv.gz` - This file contains the output for every
+  variant-gene pair tested by EMMAX. The file is sorted by position and tabix
+  indexed.
+* `top_results_sorted.tsv.gz` - This file contains the most significant
+  association for each variant tested by EMMAX. The file is sorted by position
+  and tabix indexed.
+
+I also ran a few different variations of the eQTL analysis. unrelated_eqtls01
+contains results from running the eQTL analysis using only the 131 unrelated
+subjects. no_peer_no_std_norm01 contains results from running the analysis using
+log TPM expression values without transformation and including batch, sex, and
+donor age as covariates.
 
 #### `input_data`
 
