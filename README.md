@@ -1,17 +1,24 @@
 # cardips-ipsc-eqtl
 
-CARDIPS iPSC eQTL study.
+This repository contains the code for the CARDIPS iPSC eQTL study. This code
+starts after most of the computationally intensive/time-consuming data
+processing steps like alignment, variant calling, expression estimate, etc. The
+repository mainly consists of Jupyter notebooks although there is also a
+command line script for running EMMAX and a few small data files.
 
 ## Dependencies
 
-You'll need to install this project's Python package `ciepy` included in this
-repo using either `python setup.py install` or `python setup.py develop`.
+If you want to run some of the code here, you'll need to install this project's
+Python package `ciepy` included in this repo using either `python setup.py
+install` or `python setup.py develop`. The notebooks in this repo will only run
+as-is on the Frazer lab cluster though with some minor modifications (mainly
+specifying some paths to data) it should be possible to run them elsewhere.
 
 ## Directories
 
 ### `ciepy`
 
-Project-specific Python package.
+Project-specific Python package needed to run some of the code here.
 
 ### `misc`
 
@@ -25,7 +32,7 @@ output directories in `output` and `private_output`.
 ### `output`
 
 This directory contains one directory per Jupyter notebook. Output files here
-will be shared on Figshare. Here is a description of a selection of output
+will be shared on Figshare. Here is a description of some of the output
 directories and files.
 
 #### `eqtl_processing`
@@ -40,17 +47,18 @@ Each subdir has the following files:
 * `lead_variants.tsv` - This file has the lead variants for *all* genes
   including variants that are equally significant. Note that this file includes
   genes that were not significant. The `perm_sig` column indicates whether a
-  gene was an eGene.
+  gene was an eGene (i.e. had a significant eQTL).
 * `lead_variants_single.tsv` - This file has a single lead variant for each
   gene. I choose randomly if there are ties. This file also contains *all*
   genes, not just significant genes.
 * `pvalues.tsv` - This file has the permutation p-value for each gene.
 * `qvalues.tsv` - This file has the permutation p-value, the q-value, and
   whether the gene is significant.
-* `gene_variant_pairs.tsv` - This file has all significant variant-gene pairs.
+* `gene_variant_pairs.tsv` - This file has all significant variant-gene
+  associations only for eGenes.
 * `sig_lead_snvs_single.tsv` - This file has the most significant SNV per gene
-  for genes that were significant. I choose randomly to break ties and drop
-  genes that don't have a significant SNV.
+  for eGenes. I choose randomly to break ties and drop genes that don't have a
+  significant SNV.
 * `independent_lead_snvs.tsv` - This file is created by LD pruning the variants
   in `sig_lead_snvs_single.tsv`.
 * `independent_lead_snvs.bed` - Bed file for `independent_lead_snvs.bed`.
@@ -61,11 +69,11 @@ Each subdir has the following files:
   association for each variant tested by EMMAX. The file is sorted by position
   and tabix indexed.
 
-I also ran a few different variations of the eQTL analysis. unrelated_eqtls01
+I also ran a few different variations of the eQTL analysis. `unrelated_eqtls01`
 contains results from running the eQTL analysis using only the 131 unrelated
-subjects. no_peer_no_std_norm01 contains results from running the analysis using
-log TPM expression values without transformation and including batch, sex, and
-donor age as covariates.
+subjects. `no_peer_no_std_norm01` contains results from running the analysis
+using log TPM expression values without transformation and including batch,
+sex, and donor age as covariates.
 
 #### `input_data`
 
