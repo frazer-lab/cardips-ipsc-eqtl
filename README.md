@@ -31,8 +31,7 @@ output directories in `output` and `private_output`.
 
 ### `output`
 
-This directory contains one directory per Jupyter notebook. Output files here
-will be shared on Figshare. Here is a description of some of the output
+This directory contains one directory per Jupyter notebook. Output files here should be safe to share externally (e.g. no identifiable information) but please think about what the file contains before sharing. Here is a description of some of the output
 directories and files.
 
 #### `eqtl_input`
