@@ -35,6 +35,53 @@ This directory contains one directory per Jupyter notebook. Output files here
 will be shared on Figshare. Here is a description of some of the output
 directories and files.
 
+#### `eqtl_input`
+
+This directory contains files for running EMMAX. Some of the files are just
+intermediate files. Note that most of the files here use WGS UUIDs rather than
+RNA-seq UUIDs because the EMMAX needs to the IDs in the input files to match
+the IDs in the VCF files. Here is a description of the files:
+
+* `emmax_full.tsv`: Covariates file for all 215 subjects for use with EMMAX.
+  The first two columns are sex and age. The last three columns are indicators
+for which batch the RNA-seq sample was sequenced in.
+* `emmax_full_unrelated.tsv`: Same as `emmax_full.tsv` except restricted to the
+  131 unrelated subjects.
+* `emmax_samples.tsv`: List of samples in sorted order to use for EMMAX.
+* `emmax_samples_unrelated.tsv`: Same as `emmax_sample.tsv` except restricted
+  to the 131 unrelated subjects.
+* `emmax_sex_only.tsv`: Covariates file with sex only.
+* `emmax_sex_only_unrelated.tsv`: Same as `emmax_sex_only.tsv` except
+  restricted to the 131 unrelated subjects.
+* `eqtl_genes.tsv`: List of the genes to run EMMAX for.
+* `gene_to_regions.p`: Python cPickle with mapping from genes to genomic
+  regions. Variants in the region will be tested for eQTLs with the gene. The
+regions are constructed by taking everything within 1Mb of a TSS for the gene.
+* `peer_*_factors.tsv`: PEER factors for * number of factors.
+* `peer_*_precision.tsv`: PEER precision for * number of factors. The variance
+  explained by each PEER factor is 1 / precision I believe.
+* `peer_*_residuals.tsv`: PEER residuals for * number of factors.
+* `peer_*_weights.tsv`: PEER weights for * number of factors.
+* `tpm_log_filtered.tsv`: Log of TPM values + 1. Genes with TPM > 2 in 10 or
+  more samples were kept, everything else was filtered out.
+* `tpm_log_filtered_phe.tsv`: Same as `tpm_log_filtered.tsv` except UUIDs are
+  WGS IDs for use with EMMAX.
+* `tpm_log_filtered_phe_std_norm.tsv`: Values from `tpm_log_filtered_phe.tsv`
+  were quantile normalized to a standard normal.
+* `tpm_log_filtered_phe_std_norm_peer_resid.tsv`: These are the residuals from
+  running PEER for the values in `tpm_log_filtered_phe_std_norm.tsv`, then
+quantile normalizing the residuals to a standard normal. These are the values I
+used to calculate eQTLs.
+* `unrelateds.tsv`: Metadata for the 131 unrelated samples.
+* `unrelated_subsets.tsv`: Subsets of the 131 unrelated samples. I used this
+  for testing and seeing how the number of samples affected eQTL power,
+although those results aren't around anymore and didn't make it into the paper.
+* `variant_regions.bed`: Genomic regions that are within 1Mb of a TSS.
+* `wgs.kin`: Kinship file from EMMAX.
+* `wgs.kindump`: Text dump of kinship file from EMMAX.
+* `wgs.kin.Makefile`: File that EMMAX makes when it's calculating the kinship
+  matrix.
+
 #### `eqtl_processing`
 
 This directory contains subdirectories for each eQTL analysis I've run. Subdirs
